@@ -11,10 +11,30 @@ if [[ $# -ne 1 ]]; then
 	exit 2
 fi
 
-fleet="$(balena fleet "$1" --json)"
-device_type="$(jq -r '.device_type' <<<"$fleet")"
-arch="$(balena device-type list --all --json |
-	jq -r --arg dt "$device_type" '.[] | select(.slug == $dt) | .arch')"
+errors="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/fleet-target.XXXXXX")"
+trap 'rm -f "$errors"' EXIT
+
+# Print a balena command's stdout. On failure, report its exit code and stderr, then exit.
+# stderr stays separate on success: balena warnings there would corrupt the JSON.
+balena_json() {
+	local out status=0
+	out="$(balena "$@" 2>"$errors")" || status=$?
+	if [[ "$status" -ne 0 ]]; then
+		echo "::error::balena $* failed (exit ${status}): $(tr '\n' ' ' <"$errors")${out}" >&2
+		exit 1
+	fi
+	echo "$out"
+}
+
+fleet="$(balena_json fleet "$1" --json)"
+device_type="$(jq -r '.device_type // empty' <<<"$fleet")"
+if [[ -z "$device_type" ]]; then
+	echo "::error::Fleet $1 has no device type in: ${fleet}" >&2
+	exit 1
+fi
+arch="$(balena_json device-type list --all --json |
+	jq -r --arg dt "$device_type" '.[] | select(.slug == $dt or (.aliases // [] | index($dt))) | .arch' |
+	head -n 1)"
 
 case "$arch" in
 aarch64) runner=ubuntu-24.04-arm emulated=false ;;
