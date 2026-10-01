@@ -91,6 +91,7 @@ scans, and deploys on its own, so one failing fleet does not block the others.
 |---|---|---|
 | `fleets` | required | Fleet slugs, one per line or comma-separated. `#` starts a comment. |
 | `source` | `.` | Project directory, relative to the repo root |
+| `submodules` | `false` | Check out git submodules: `false`, `true`, or `recursive`. Use it when a service builds from a submodule. |
 | `project-name` | `app` | Local image name prefix for `balena build` |
 | `object-prefix` | fleet name | Exein objects are named `<prefix>-<service>` |
 | `balena-cli-version` | `v25.2.6` | balena CLI release |

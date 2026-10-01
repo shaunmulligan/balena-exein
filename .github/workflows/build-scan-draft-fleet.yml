@@ -12,6 +12,9 @@ on:
       source:
         type: string
         required: true
+      submodules:
+        type: string
+        required: true
       project-name:
         type: string
         required: true
@@ -48,6 +51,8 @@ jobs:
       services: ${{ steps.target.outputs.services }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: ${{ inputs.submodules }}
 
       - uses: shaunmulligan/balena-exein/actions/setup-balena@main
         with:
@@ -80,6 +85,8 @@ jobs:
       TARGET: ${{ needs.plan.outputs.target }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: ${{ inputs.submodules }}
 
       - uses: shaunmulligan/balena-exein/actions/setup-balena@main
         with:
@@ -181,6 +188,8 @@ jobs:
       FLEET_KEY: ${{ fromJSON(needs.plan.outputs.target).key }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: ${{ inputs.submodules }}
 
       - uses: shaunmulligan/balena-exein/actions/setup-balena@main
         with:
