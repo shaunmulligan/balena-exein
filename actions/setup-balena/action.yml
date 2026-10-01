@@ -1,0 +1,27 @@
+name: Set up balena CLI
+description: Install the standalone balena CLI for the runner arch (x64 or arm64) and log in.
+
+inputs:
+  token:
+    description: balenaCloud API key
+    required: true
+  version:
+    description: balena CLI release tag
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        BALENA_TOKEN: ${{ inputs.token }}
+        BALENA_CLI_VERSION: ${{ inputs.version }}
+        CLI_ARCH: ${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}
+      run: |
+        curl -fsSL -o "$RUNNER_TEMP/balena-cli.tar.gz" \
+          "https://github.com/balena-io/balena-cli/releases/download/${BALENA_CLI_VERSION}/balena-cli-${BALENA_CLI_VERSION}-linux-${CLI_ARCH}-standalone.tar.gz"
+        tar xzf "$RUNNER_TEMP/balena-cli.tar.gz" -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/balena/bin" >> "$GITHUB_PATH"
+        # An empty token makes login prompt and exit 0, so confirm the session.
+        "$RUNNER_TEMP/balena/bin/balena" login --token "$BALENA_TOKEN"
+        "$RUNNER_TEMP/balena/bin/balena" whoami

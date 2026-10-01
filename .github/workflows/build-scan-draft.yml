@@ -1,0 +1,83 @@
+name: Build, scan, deploy draft (reusable)
+
+# For each fleet: build every service, upload each image to Exein Analyzer, and
+# deploy a draft release tagged exein-gate=pending. gate.yml finalizes it when its
+# scans pass. Each fleet runs on its own, so one failing fleet does not block the rest.
+on:
+  workflow_call:
+    inputs:
+      fleets:
+        description: 'Fleet slugs (<org>/<fleet>), one per line or comma-separated; "#" starts a comment'
+        type: string
+        required: true
+      source:
+        description: Project directory, relative to the repo root
+        type: string
+        default: .
+      project-name:
+        description: Local image name prefix for balena build
+        type: string
+        default: app
+      object-prefix:
+        description: Exein object name prefix; objects are <prefix>-<service> (default the fleet name)
+        type: string
+        default: ""
+      balena-cli-version:
+        type: string
+        default: v25.2.6
+      analyzer-url:
+        type: string
+        default: https://analyzer.exein.io/api/
+      analyzer-cli-version:
+        type: string
+        default: latest
+    secrets:
+      balena-token:
+        required: true
+      analyzer-api-key:
+        required: true
+
+jobs:
+  fleets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      fleets: ${{ steps.fleets.outputs.fleets }}
+    steps:
+      - name: Check secrets
+        env:
+          balena_token: ${{ secrets.balena-token }}
+          analyzer_api_key: ${{ secrets.analyzer-api-key }}
+        run: |
+          missing=0
+          for name in balena_token analyzer_api_key; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::${name//_/-} is empty or not set."
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: shaunmulligan/balena-exein/actions/fleets@main
+        id: fleets
+        with:
+          fleets: ${{ inputs.fleets }}
+
+  fleet:
+    needs: fleets
+    strategy:
+      fail-fast: false
+      matrix:
+        fleet: ${{ fromJSON(needs.fleets.outputs.fleets) }}
+    uses: shaunmulligan/balena-exein/.github/workflows/build-scan-draft-fleet.yml@main
+    with:
+      fleet: ${{ matrix.fleet }}
+      source: ${{ inputs.source }}
+      project-name: ${{ inputs.project-name }}
+      object-prefix: ${{ inputs.object-prefix }}
+      balena-cli-version: ${{ inputs.balena-cli-version }}
+      analyzer-url: ${{ inputs.analyzer-url }}
+      analyzer-cli-version: ${{ inputs.analyzer-cli-version }}
+    secrets:
+      balena-token: ${{ secrets.balena-token }}
+      analyzer-api-key: ${{ secrets.analyzer-api-key }}

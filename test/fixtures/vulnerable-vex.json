@@ -1,0 +1,10 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "vulnerabilities": [
+    {"id": "CVE-2024-1001", "ratings": [{"severity": "low"}, {"severity": "HIGH"}]},
+    {"id": "CVE-2024-1002", "ratings": [{"severity": "critical"}], "analysis": {"state": "exploitable"}},
+    {"id": "CVE-2024-1002", "ratings": [{"severity": "critical"}]},
+    {"id": "CVE-2024-1003", "ratings": [{"severity": "medium"}]}
+  ]
+}

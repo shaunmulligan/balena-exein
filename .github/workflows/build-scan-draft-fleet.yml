@@ -1,0 +1,216 @@
+name: Build, scan, deploy draft for one fleet (internal)
+
+# Called once per fleet by build-scan-draft.yml. Call that workflow, not this one.
+# Builds every service, uploads each image to Exein Analyzer, and deploys a
+# draft release tagged exein-gate=pending. gate.yml finalizes it when its scans pass.
+on:
+  workflow_call:
+    inputs:
+      fleet:
+        type: string
+        required: true
+      source:
+        type: string
+        required: true
+      project-name:
+        type: string
+        required: true
+      object-prefix:
+        type: string
+        required: true
+      balena-cli-version:
+        type: string
+        required: true
+      analyzer-url:
+        type: string
+        required: true
+      analyzer-cli-version:
+        type: string
+        required: true
+    secrets:
+      balena-token:
+        required: true
+      analyzer-api-key:
+        required: true
+
+env:
+  RESULTS_DIR: exein-results
+  IMAGES_DIR: images
+
+jobs:
+  plan:
+    # Device type and arch come from the fleet; the arch picks the build runner.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      target: ${{ steps.target.outputs.target }}
+      images: ${{ steps.plan.outputs.images }}
+      services: ${{ steps.target.outputs.services }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shaunmulligan/balena-exein/actions/setup-balena@main
+        with:
+          token: ${{ secrets.balena-token }}
+          version: ${{ inputs.balena-cli-version }}
+
+      - uses: shaunmulligan/balena-exein/actions/plan@main
+        id: plan
+        with:
+          # build-scan-draft.yml validated the slug, so it is safe inside JSON quotes.
+          fleets: ${{ format('["{0}"]', inputs.fleet) }}
+          project-name: ${{ inputs.project-name }}
+          tag: ${{ github.sha }}
+          source: ${{ inputs.source }}
+
+      - name: Select this fleet
+        id: target
+        env:
+          FLEETS: ${{ steps.plan.outputs.fleets }}
+          SCANS: ${{ steps.plan.outputs.scans }}
+        run: |
+          echo "target=$(jq -c '.[0]' <<<"$FLEETS")" >> "$GITHUB_OUTPUT"
+          echo "services=$(jq -c '[.[].service]' <<<"$SCANS")" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: plan
+    runs-on: ${{ fromJSON(needs.plan.outputs.target).runner }}
+    timeout-minutes: 60
+    env:
+      TARGET: ${{ needs.plan.outputs.target }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shaunmulligan/balena-exein/actions/setup-balena@main
+        with:
+          token: ${{ secrets.balena-token }}
+          version: ${{ inputs.balena-cli-version }}
+
+      - name: balena build
+        env:
+          SOURCE_DIR: ${{ inputs.source }}
+          PROJECT_NAME: ${{ inputs.project-name }}
+        run: |
+          device_type="$(jq -r '.device_type' <<<"$TARGET")"
+          arch="$(jq -r '.arch' <<<"$TARGET")"
+          emulated=()
+          [[ "$(jq -r '.emulated' <<<"$TARGET")" == true ]] && emulated=(--emulated)
+          balena build "$SOURCE_DIR" --deviceType "$device_type" --arch "$arch" "${emulated[@]}" \
+            --projectName "$PROJECT_NAME" --tag "$GITHUB_SHA"
+
+      - name: Export images
+        env:
+          IMAGES: ${{ needs.plan.outputs.images }}
+        run: |
+          mkdir -p "$IMAGES_DIR"
+          jq -r '.[] | "\(.name) \(.image)"' <<<"$IMAGES" | while read -r name image; do
+            docker save "$image" -o "${IMAGES_DIR}/${name}.tar"
+          done
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: balena-exein-images-${{ fromJSON(needs.plan.outputs.target).key }}
+          path: ${{ env.IMAGES_DIR }}
+          # Image layers are already compressed.
+          compression-level: 0
+          retention-days: 1
+
+  scan:
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.plan.outputs.services) }}
+    env:
+      SERVICE: ${{ matrix.service }}
+      FLEET_KEY: ${{ fromJSON(needs.plan.outputs.target).key }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: balena-exein-images-${{ env.FLEET_KEY }}
+          path: ${{ env.IMAGES_DIR }}
+
+      - uses: shaunmulligan/balena-exein/actions/setup-analyzer@main
+        with:
+          api-key: ${{ secrets.analyzer-api-key }}
+          api-url: ${{ inputs.analyzer-url }}
+          version: ${{ inputs.analyzer-cli-version }}
+
+      - uses: shaunmulligan/balena-exein/actions/exein-object@main
+        id: object
+        with:
+          name: ${{ inputs.object-prefix || fromJSON(needs.plan.outputs.target).name }}-${{ matrix.service }}
+          api-key: ${{ secrets.analyzer-api-key }}
+          api-url: ${{ inputs.analyzer-url }}
+
+      - name: Exein scan
+        id: scan
+        uses: exein-io/analyzer-scan@9740fd94d6e05307d2c7b303155164ca9aab2e3d # v1.0.1
+        with:
+          api-key: ${{ secrets.analyzer-api-key }}
+          api-url: ${{ inputs.analyzer-url }}
+          object-id: ${{ steps.object.outputs.id }}
+          scan-type: docker
+          file-path: ${{ env.IMAGES_DIR }}/${{ matrix.service }}.tar
+
+      - name: Record scan
+        env:
+          SCAN_ID: ${{ steps.scan.outputs.scan-id }}
+          SCAN_URL: ${{ steps.scan.outputs.scan-url }}
+        run: |
+          echo "Exein scan for **${SERVICE}**: ${SCAN_URL}" >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p "$RESULTS_DIR"
+          jq -n --arg service "$SERVICE" --arg id "$SCAN_ID" '{service: $service, scan_id: $id}' \
+            > "${RESULTS_DIR}/${SERVICE}-scan.json"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: balena-exein-scan-${{ env.FLEET_KEY }}-${{ matrix.service }}
+          path: ${{ env.RESULTS_DIR }}
+
+  deploy:
+    # Runs once every image is uploaded to Exein. Scans finish later; gate.yml gates the draft.
+    needs: [plan, scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: balena-exein-deploy-${{ inputs.fleet }}
+      cancel-in-progress: false
+    env:
+      FLEET_KEY: ${{ fromJSON(needs.plan.outputs.target).key }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: shaunmulligan/balena-exein/actions/setup-balena@main
+        with:
+          token: ${{ secrets.balena-token }}
+          version: ${{ inputs.balena-cli-version }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: balena-exein-images-${{ env.FLEET_KEY }}
+          path: ${{ env.IMAGES_DIR }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: balena-exein-scan-${{ env.FLEET_KEY }}-*
+          path: ${{ env.RESULTS_DIR }}
+          merge-multiple: true
+
+      - name: Load scanned images
+        run: |
+          # The exact tarballs Exein scanned; balena deploy finds them by tag and skips the build.
+          for tar in "$IMAGES_DIR"/*.tar; do
+            docker load -i "$tar"
+          done
+
+      - name: balena deploy --draft
+        env:
+          FLEET: ${{ inputs.fleet }}
+          SOURCE_DIR: ${{ inputs.source }}
+          PROJECT_NAME: ${{ inputs.project-name }}
+        run: |
+          mapfile -t scan_tags < <(jq -r '"exein-scan-\(.service)", .scan_id' "$RESULTS_DIR"/*-scan.json)
+          balena deploy "$FLEET" --source "$SOURCE_DIR" --projectName "$PROJECT_NAME" --tag "$GITHUB_SHA" --draft \
+            --release-tag "${scan_tags[@]}" exein-gate pending commit "$GITHUB_SHA"

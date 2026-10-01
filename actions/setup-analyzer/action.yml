@@ -1,0 +1,30 @@
+name: Set up Exein Analyzer CLI
+description: Install the Analyzer CLI for the runner arch (x86_64 or aarch64) from the Analyzer platform.
+
+inputs:
+  api-key:
+    description: Exein Analyzer API key
+    required: true
+  api-url:
+    description: Analyzer base API URL
+    required: true
+  version:
+    description: Analyzer CLI release, or latest
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ANALYZER_API_KEY: ${{ inputs.api-key }}
+        ANALYZER_URL: ${{ inputs.api-url }}
+        ANALYZER_CLI_VERSION: ${{ inputs.version }}
+        CLI_ARCH: ${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
+      run: |
+        # Same download analyzer-scan uses; its install path is not an output.
+        mkdir -p "$RUNNER_TEMP/analyzer-cli"
+        curl -fsSL -H "Authorization: Bearer $ANALYZER_API_KEY" \
+          "${ANALYZER_URL%/}/releases/analyzer-cli/${ANALYZER_CLI_VERSION}/analyzer-${CLI_ARCH}-unknown-linux-gnu.tar.gz" \
+          | tar xz -C "$RUNNER_TEMP/analyzer-cli"
+        echo "$RUNNER_TEMP/analyzer-cli" >> "$GITHUB_PATH"

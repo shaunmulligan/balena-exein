@@ -1,0 +1,42 @@
+name: Plan balena Exein build
+description: >-
+  Resolve each fleet's build target and list the services balena build creates.
+  Needs the balena CLI, logged in, and the project checked out.
+
+inputs:
+  fleets:
+    description: JSON array of fleet slugs (from the fleets action)
+    required: true
+  project-name:
+    description: Project name passed to balena build --projectName
+    required: true
+  tag:
+    description: Tag passed to balena build --tag
+    required: true
+  source:
+    description: Project source directory passed to balena build
+    required: true
+
+outputs:
+  fleets:
+    description: 'JSON array of {slug, key, name, device_type, arch, runner, emulated}'
+    value: ${{ steps.plan.outputs.fleets }}
+  images:
+    description: 'JSON array of {name, image}'
+    value: ${{ steps.plan.outputs.images }}
+  scans:
+    description: 'JSON array of {fleet, key, name, service}'
+    value: ${{ steps.plan.outputs.scans }}
+
+runs:
+  using: composite
+  steps:
+    - id: plan
+      shell: bash
+      env:
+        FLEETS: ${{ inputs.fleets }}
+        PROJECT_NAME: ${{ inputs.project-name }}
+        TAG: ${{ inputs.tag }}
+        SOURCE_DIR: ${{ inputs.source }}
+      run: |
+        "$GITHUB_ACTION_PATH/plan.sh" "$FLEETS" "$PROJECT_NAME" "$TAG" "$SOURCE_DIR" >> "$GITHUB_OUTPUT"

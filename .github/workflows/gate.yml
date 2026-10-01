@@ -1,0 +1,88 @@
+name: Exein gate (reusable)
+
+# Finalizes draft releases from build-scan-draft.yml once their Exein scans pass.
+# The caller supplies the trigger, for example a schedule.
+on:
+  workflow_call:
+    inputs:
+      fleets:
+        description: 'Fleet slugs (<org>/<fleet>), one per line or comma-separated; "#" starts a comment'
+        type: string
+        required: true
+      fail-on:
+        description: 'Lowest severity that blocks a release: critical or high'
+        type: string
+        default: critical
+      enforce:
+        description: false finalizes failing drafts and tags them override
+        type: boolean
+        default: true
+      balena-cli-version:
+        type: string
+        default: v25.2.6
+      analyzer-url:
+        type: string
+        default: https://analyzer.exein.io/api/
+      analyzer-cli-version:
+        type: string
+        default: latest
+    secrets:
+      balena-token:
+        required: true
+      analyzer-api-key:
+        required: true
+
+env:
+  RESULTS_DIR: exein-results
+
+jobs:
+  fleets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      fleets: ${{ steps.fleets.outputs.fleets }}
+    steps:
+      - uses: shaunmulligan/balena-exein/actions/fleets@main
+        id: fleets
+        with:
+          fleets: ${{ inputs.fleets }}
+
+  gate:
+    needs: fleets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      # Gate every fleet even when one errors.
+      fail-fast: false
+      matrix:
+        fleet: ${{ fromJSON(needs.fleets.outputs.fleets) }}
+    concurrency:
+      group: balena-exein-gate-${{ matrix.fleet }}
+      cancel-in-progress: false
+    steps:
+      - uses: shaunmulligan/balena-exein/actions/setup-balena@main
+        with:
+          token: ${{ secrets.balena-token }}
+          version: ${{ inputs.balena-cli-version }}
+
+      - uses: shaunmulligan/balena-exein/actions/setup-analyzer@main
+        with:
+          api-key: ${{ secrets.analyzer-api-key }}
+          api-url: ${{ inputs.analyzer-url }}
+          version: ${{ inputs.analyzer-cli-version }}
+
+      - uses: shaunmulligan/balena-exein/actions/release-gate@main
+        with:
+          fleet: ${{ matrix.fleet }}
+          fail-on: ${{ inputs.fail-on }}
+          enforce: ${{ inputs.enforce }}
+          api-key: ${{ secrets.analyzer-api-key }}
+          api-url: ${{ inputs.analyzer-url }}
+          results-dir: ${{ env.RESULTS_DIR }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: balena-exein-gate-${{ strategy.job-index }}
+          path: ${{ env.RESULTS_DIR }}
+          if-no-files-found: ignore

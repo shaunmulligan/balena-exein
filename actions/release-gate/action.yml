@@ -1,0 +1,37 @@
+name: Gate balena draft releases
+description: >-
+  Gate pending draft releases on their Exein scans and finalize the ones that pass.
+  Needs the balena CLI (logged in) and the Analyzer CLI on PATH.
+
+inputs:
+  fleet:
+    description: Fleet slug
+    required: true
+  fail-on:
+    description: 'Lowest blocking severity: critical or high'
+    required: true
+  enforce:
+    description: '"false" finalizes failing drafts and tags them override'
+    required: true
+  api-key:
+    description: Exein Analyzer API key
+    required: true
+  api-url:
+    description: Analyzer base API URL
+    required: true
+  results-dir:
+    description: Directory for downloaded reports and VEX files
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ANALYZER_API_KEY: ${{ inputs.api-key }}
+        ANALYZER_URL: ${{ inputs.api-url }}
+        FLEET: ${{ inputs.fleet }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        ENFORCE: ${{ inputs.enforce }}
+        RESULTS_DIR: ${{ inputs.results-dir }}
+      run: '"$GITHUB_ACTION_PATH/release-gate.sh" "$FLEET"'

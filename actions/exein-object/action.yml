@@ -1,0 +1,31 @@
+name: Resolve Exein object
+description: Find the Exein Analyzer object with this name, or create it. Needs the Analyzer CLI on PATH.
+
+inputs:
+  name:
+    description: Object name
+    required: true
+  api-key:
+    description: Exein Analyzer API key
+    required: true
+  api-url:
+    description: Analyzer base API URL
+    required: true
+
+outputs:
+  id:
+    description: Object ID
+    value: ${{ steps.resolve.outputs.id }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        ANALYZER_API_KEY: ${{ inputs.api-key }}
+        ANALYZER_URL: ${{ inputs.api-url }}
+        OBJECT_NAME: ${{ inputs.name }}
+      run: |
+        id="$("$GITHUB_ACTION_PATH/exein-object.sh" "$OBJECT_NAME")"
+        echo "id=${id}" >> "$GITHUB_OUTPUT"

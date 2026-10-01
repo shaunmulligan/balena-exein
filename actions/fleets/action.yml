@@ -1,0 +1,23 @@
+name: Parse balena fleet list
+description: Turn a newline- or comma-separated fleet list into a JSON array for a matrix.
+
+inputs:
+  fleets:
+    description: 'Fleet slugs, one per line or comma-separated; "#" starts a comment'
+    required: true
+
+outputs:
+  fleets:
+    description: JSON array of fleet slugs
+    value: ${{ steps.parse.outputs.fleets }}
+
+runs:
+  using: composite
+  steps:
+    - id: parse
+      shell: bash
+      env:
+        FLEETS: ${{ inputs.fleets }}
+      run: |
+        fleets="$("$GITHUB_ACTION_PATH/parse-fleets.sh" <<<"$FLEETS")"
+        echo "fleets=${fleets}" >> "$GITHUB_OUTPUT"

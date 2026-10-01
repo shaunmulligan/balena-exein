@@ -1,0 +1,8 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "vulnerabilities": [
+    {"id": "CVE-2024-2001", "ratings": [{"severity": "high"}]},
+    {"id": "CVE-2024-2002", "ratings": [{"severity": "medium"}], "analysis": null}
+  ]
+}
