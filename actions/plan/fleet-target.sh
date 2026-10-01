@@ -20,13 +20,17 @@ balena_json() {
 	local out status=0
 	out="$(balena "$@" 2>"$errors")" || status=$?
 	if [[ "$status" -ne 0 ]]; then
-		echo "::error::balena $* failed (exit ${status}): $(tr '\n' ' ' <"$errors")${out}" >&2
+		# One line: an annotation ends at the first newline.
+		echo "::error::balena $* failed (exit ${status}): $(tr '\n' ' ' <"$errors")$(tr '\n' ' ' <<<"$out")" >&2
 		exit 1
 	fi
 	echo "$out"
 }
 
-fleet="$(balena_json fleet "$1" --json)"
+if ! fleet="$(balena_json fleet "$1" --json)"; then
+	echo "::error::Check the slug $1, and that the user that owns balena-token can access that fleet." >&2
+	exit 1
+fi
 device_type="$(jq -r '.device_type // empty' <<<"$fleet")"
 if [[ -z "$device_type" ]]; then
 	echo "::error::Fleet $1 has no device type in: ${fleet}" >&2

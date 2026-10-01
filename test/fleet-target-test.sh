@@ -14,6 +14,8 @@ cat >"${fake_bin}/balena" <<'FAKE'
 # org/fail-* fleets fail like a broken API call; org/warn-* write a warning to stderr.
 case "$2" in
 */fail-*) echo "BalenaRequestError: Request error: 503" >&2 && exit 3 ;;
+# With --json, the CLI can print its error as multi-line JSON on stdout.
+*/denied-*) printf '{\n  "error": "Fleet not found"\n}\n' && exit 1 ;;
 */warn-*) echo "balena-cli update check failed" >&2 ;;
 esac
 case "$1" in
@@ -63,6 +65,14 @@ if [[ "$msg" == *"exit 3"*"Request error: 503"* ]]; then
 	echo "ok:   failed balena call reports exit code and error"
 else
 	echo "FAIL: failed balena call reported: ${msg:-nothing}"
+	failures=$((failures + 1))
+fi
+
+msg="$(PATH="${fake_bin}:$PATH" "$script" org/denied-raspberrypi5 2>&1 >/dev/null || true)"
+if [[ "$(head -n 1 <<<"$msg")" == *"exit 1"*"Fleet not found"* && "$msg" == *"can access that fleet"* ]]; then
+	echo "ok:   multi-line stdout error is reported on one line, with a hint"
+else
+	echo "FAIL: multi-line stdout error reported as: ${msg:-nothing}"
 	failures=$((failures + 1))
 fi
 
